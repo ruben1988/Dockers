@@ -1,0 +1,137 @@
+version: '3'
+services:
+
+  # simple myself setup
+  mysql:
+    image: mysql:5.7
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: myRootPassword123
+      MYSQL_DATABASE: myDb
+      MYSQL_USER: myDbUser
+      MYSQL_PASSWORD: myPassword123
+
+  wordpress:
+     depends_on:
+       - mysql
+     image: wordpress:latest
+     volumes:
+       - wordpress_data:/var/www/html
+     ports:
+       - "8000:80"
+     restart: always
+     environment:
+       WORDPRESS_DB_HOST: mysql:3306
+       WORDPRESS_DB_USER: myDbUser
+       WORDPRESS_DB_PASSWORD: myPassword123
+       WORDPRESS_DB_NAME: myDb
+
+
+  php:
+    build:
+      context: './php/'
+      args:
+       PHP_VERSION: ${PHP_VERSION}
+    restart: always
+    networks:
+      - backend
+    volumes:
+      - ${PROJECT_ROOT}/:/var/www/html/
+    container_name: php
+
+
+  apache:
+    build:
+      context: './apache/'
+      args:
+       APACHE_VERSION: ${APACHE_VERSION}
+    restart: always
+    depends_on:
+      - php
+      - mysql
+    networks:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ${PROJECT_ROOT}/:/var/www/html/
+    container_name: apache
+
+
+  # grafana used for graphing mysql data
+  grafana:
+    image: grafana/grafana
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+    env_file:
+      - ./grafana/config.monitoring
+    restart: always
+    environment:
+      GF_INSTALL_PLUGINS: percona-percona-app, raintank-worldping-app
+
+  # tool to connect to mysql instance, and allow prometheus to collect mysql stats
+  prom_mysql_exporter:
+    image: prom/mysqld-exporter
+    links:
+      - mysql
+    restart: always
+    ports:
+      - '9104:9104'
+    environment:
+      DATA_SOURCE_NAME: root:myRootPassword123@(mysql:3306)/myDb
+
+  # tool to connect to apache instance
+  node-exporter:
+    image: quay.io/prometheus/node-exporter
+    restart: always
+    links:
+      - wordpress
+    ports:
+      - '9100:9100'
+
+
+  phpfpm:
+    image: hipages/php
+    restart: always
+    ports:
+      - "9000:9000"
+    environment:
+      PHP_FPM_PM_STATUS_PATH: "/status"
+
+  exporter:
+    image: hipages/php-fpm_exporter:0.0.4
+    restart: always
+    ports:
+      - "9253:9253"
+    environment:
+      PHP_FPM_SCRAPE_URI: "tcp://phpfpm:9000/status"
+      PHP_FPM_LOG_LEVEL: "debug"
+
+  # prometheus stores and handles timeseries data for statistics around mysql
+  prometheus:
+    image: prom/prometheus
+    restart: always
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    links:
+      - prom_mysql_exporter
+    ports:
+      - "9090:9090"
+
+networks:
+  frontend:
+  backend:
+volumes:
+    prometheus_data: {}
+    grafana_data: {}
+    mysql_data: {}
+    wordpress_data: {}
