@@ -1,31 +1,80 @@
 version: '3.1'
 services:
-  postgres:
-    image: postgres:latest
-    restart: always
-    networks:
-      - redmine
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+  mysql_redmine:
+    image: mysql:5.7
     environment:
-      - 'POSTGRES_PASSWORD=password'
-      - 'POSTGRES_DB=redmine'
+      MYSQL_ROOT_PASSWORD: redmine
+      MYSQL_DATABASE: redmine
+    # volumes:
+    #   - /srv/docker/redmine/mysql:/var/lib/mysql
+    # ports:
+    #   - '3306:3306'
+    restart: always
+
   redmine:
     image: redmine:latest
     restart: always
-    networks:
-      - redmine
+    # networks:
+    #   - redmine
     volumes:
       - redmine-data:/usr/src/redmine/files
     ports:
-      - 80:3000
+      - 3000:3000
     environment:
-      - 'REDMINE_DB_POSTGRES=postgres'
-      - 'REDMINE_DB_DATABASE=redmine'
-      - 'REDMINE_DB_PASSWORD=password'
+      REDMINE_DB_MYSQL: mysql_redmine
+      #REDMINE_DB_USERNAME: redmine
+      REDMINE_DB_PASSWORD: redmine
+      #REDMINE_DB_DATABASE: redmine
+    # depends_on:
+    #   - mysql_redmine
+    depends_on:
+      - keycloak
+
+  postgres:
+      image: postgres
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      environment:
+        POSTGRES_DB: keycloak
+        POSTGRES_USER: keycloak
+        POSTGRES_PASSWORD: password
+  keycloak:
+      image: jboss/keycloak
+      environment:
+        DB_VENDOR: POSTGRES
+        DB_ADDR: postgres
+        DB_DATABASE: keycloak
+        DB_USER: keycloak
+        DB_SCHEMA: public
+        DB_PASSWORD: password
+        KEYCLOAK_USER: admin
+        KEYCLOAK_PASSWORD: Pa55w0rd
+        # Uncomment the line below if you want to specify JDBC parameters. The parameter below is just an example, and it shouldn't be used in production without knowledge. It is highly recommended that you read the PostgreSQL JDBC driver documentation in order to use it.
+        #JDBC_PARAMS: "ssl=true"
+      ports:
+        - 8080:8080
+      depends_on:
+        - postgres
+
+  ldap:
+    image: osixia/openldap:latest
+    ports:
+      - 389:389
+      - 636:636
+    volumes:
+      - ./ldap-data:/var/lib/ldap
+      - ./sldapd-config:/etc/ldap/slapd.d
+    environment:
+      - LDAP_ORGANISATION="Grupo ICA"
+      - LDAP_DOMAIN=0.0.0.0
+      - LDAP_ADMIN_PASSWORD=admin
+      - LDAP_TLS_VERIFY_CLIENT=never
+    restart: always
+
 volumes:
-  postgres-data:
+  postgres_data:
+    driver: local
   redmine-data:
-networks:
-  redmine:
-    driver: bridge
+# networks:
+#   redmine:
+#     driver: bridge
